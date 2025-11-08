@@ -2,7 +2,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { mockPayments, mockProducts } from '@/lib/supabase';
+import { productApi, API_BASE_URL } from '../../lib/api';
+
+interface Payment {
+  id: string;
+  user_email: string;
+  product_id: string;
+  amount: number;
+  status: string;
+  created_at: string;
+  product_title?: string;
+  product_image?: string;
+}
 
 export default function RevenueStats() {
   const [stats, setStats] = useState({
@@ -13,38 +24,62 @@ export default function RevenueStats() {
     failedPayments: 0
   });
 
-  const [recentPayments, setRecentPayments] = useState([]);
+  const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
 
   useEffect(() => {
-    // Mock stats calculation
-    const totalRevenue = mockPayments
-      .filter(payment => payment.status === 'completed')
-      .reduce((sum, payment) => sum + payment.amount, 0);
-
-    const completedPayments = mockPayments.filter(p => p.status === 'completed').length;
-    const pendingPayments = mockPayments.filter(p => p.status === 'pending').length;
-    const failedPayments = mockPayments.filter(p => p.status === 'failed').length;
-
-    setStats({
-      totalViews: 1247, // Mock data
-      totalRevenue,
-      completedPayments,
-      pendingPayments,
-      failedPayments
-    });
-
-    // Mock recent payments with product info
-    const paymentsWithProducts = mockPayments.map(payment => {
-      const product = mockProducts.find(p => p.id === payment.product_id);
-      return {
-        ...payment,
-        product_title: product?.title || 'Unknown Product',
-        product_image: product?.image_url || ''
-      };
-    });
-
-    setRecentPayments(paymentsWithProducts);
+    fetchStatsData();
   }, []);
+
+  const fetchStatsData = async () => {
+    try {
+      // Fetch payments data
+      const paymentsResponse = await fetch(`${API_BASE_URL}/payments`);
+      const payments = paymentsResponse.ok ? await paymentsResponse.json() : [];
+      
+      // Fetch products data
+      const products = await productApi.getAll();
+
+      // Calculate stats
+      const totalRevenue = payments
+        .filter((payment: Payment) => payment.status === 'completed')
+        .reduce((sum: number, payment: Payment) => sum + payment.amount, 0);
+
+      const completedPayments = payments.filter((p: Payment) => p.status === 'completed').length;
+      const pendingPayments = payments.filter((p: Payment) => p.status === 'pending').length;
+      const failedPayments = payments.filter((p: Payment) => p.status === 'failed').length;
+
+      setStats({
+        totalViews: 1247, // Mock data - this would come from analytics
+        totalRevenue,
+        completedPayments,
+        pendingPayments,
+        failedPayments
+      });
+
+      // Merge payments with product info
+      const paymentsWithProducts = payments.map((payment: Payment) => {
+        const product = products.find((p: any) => p.id.toString() === payment.product_id);
+        return {
+          ...payment,
+          product_title: product?.title || 'Unknown Product',
+          product_image: product?.image_url || ''
+        };
+      });
+
+      setRecentPayments(paymentsWithProducts);
+    } catch (error) {
+      console.error('Error fetching stats data:', error);
+      // Fallback to empty data or mock data
+      setStats({
+        totalViews: 0,
+        totalRevenue: 0,
+        completedPayments: 0,
+        pendingPayments: 0,
+        failedPayments: 0
+      });
+      setRecentPayments([]);
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {

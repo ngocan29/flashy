@@ -2,7 +2,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
 import ProductCard from '@/components/ProductCard';
 import Link from 'next/link';
@@ -22,6 +21,7 @@ interface Product {
   permit: string;
   permit_life: number;
   view_count: number;
+  user_id?: number;
 }
 
 export default function ProductDetail({ productId }: { productId: string }) {
@@ -40,79 +40,128 @@ export default function ProductDetail({ productId }: { productId: string }) {
 
   const fetchProduct = async () => {
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('id', productId)
-        .single();
+      // Fetch product from API
+      const response = await fetch(`http://localhost:3006/api/products/${productId}`)
+      if (!response.ok) {
+        if (response.status === 404) {
+          setProduct(null)
+          return
+        }
+        throw new Error('Failed to fetch product')
+      }
 
-      if (error) throw error;
+      const data = await response.json()
 
       if (data) {
-        setProduct({
-          ...data,
-          description: data.description || []
-        });
+        // Transform API data to match frontend interface
+        const transformedProduct = {
+          id: data.id.toString(),
+          title: data.title,
+          description: typeof data.description === 'string' ? JSON.parse(data.description || '[]') : (data.description || []),
+          price: data.price || 0,
+          price_sale: data.saleprice > 0 ? data.saleprice : undefined,
+          image_url: data.image || 'https://via.placeholder.com/400x300?text=No+Image',
+          video_url: data.videodemo || '',
+          download_url: data.download || '',
+          creator_name: data.seller_name || 'Unknown Creator',
+          rate: data.rateavg || 0,
+          rate_count: data.ratecount || 0,
+          permit: data.islicense === 'yes' ? 'License' : 'Free',
+          permit_life: data.licenseday ? Math.floor(data.licenseday / 30) : 0,
+          view_count: data.viewcount || 0
+        }
 
-        await supabase
-          .from('products')
-          .update({ view_count: (data.view_count || 0) + 1 })
-          .eq('id', productId);
+        setProduct(transformedProduct)
 
-        const { data: related } = await supabase
-          .from('products')
-          .select('*')
-          .eq('creator_name', data.creator_name)
-          .neq('id', productId)
-          .limit(4);
+        // Update view count
+        await fetch(`http://localhost:3006/api/products/${productId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            viewcount: (data.viewcount || 0) + 1
+          })
+        })
 
-        setRelatedProducts(related || []);
+        // Fetch related products from same creator
+        try {
+          const relatedResponse = await fetch(`http://localhost:3006/api/products?creator=${encodeURIComponent(data.seller_name || '')}`)
+          if (relatedResponse.ok) {
+            const relatedData = await relatedResponse.json()
+            const relatedProducts = relatedData
+              .filter((item: any) => item.id.toString() !== productId)
+              .slice(0, 4)
+              .map((item: any) => ({
+                id: item.id.toString(),
+                title: item.title,
+                creator_name: item.seller_name || 'Unknown Creator',
+                rate: item.rateavg || 0,
+                rate_count: item.ratecount || 0,
+                price: item.price || 0,
+                price_sale: item.saleprice > 0 ? item.saleprice : undefined,
+                image_url: item.image || 'https://via.placeholder.com/400x300?text=No+Image',
+                video_url: item.videodemo || undefined,
+                description: typeof item.description === 'string' ? JSON.parse(item.description || '[]') : (item.description || []),
+                permit: item.islicense === 'yes' ? 'License' : 'Free',
+                permit_life: item.licenseday ? Math.floor(item.licenseday / 30) : 0,
+                category_id: item.categoryid?.toString() || 'all',
+                user_id: item.userid || 0
+              }))
+            setRelatedProducts(relatedProducts)
+          }
+        } catch (error) {
+          console.error('Error fetching related products:', error)
+        }
       }
     } catch (error) {
-      console.error('Error fetching product:', error);
+      console.error('Error fetching product:', error)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const checkPurchaseStatus = async () => {
-    if (!user) return;
+    if (!user?.email) return;
 
     try {
-      const { data } = await supabase
-        .from('payments')
-        .select('*')
-        .eq('buyer_id', user.id)
-        .eq('product_id', productId)
-        .eq('status', 'completed')
-        .limit(1);
-
-      setHasPurchased(data && data.length > 0);
+      const response = await fetch(`http://localhost:3006/api/payments/check?userEmail=${encodeURIComponent(user.email)}&productId=${productId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setHasPurchased(data.hasPurchased || false)
+      }
     } catch (error) {
-      console.error('Error checking purchase status:', error);
+      console.error('Error checking purchase status:', error)
     }
-  };
+  }
 
   const handlePurchase = async () => {
-    if (!user) {
+    if (!user?.email) {
       alert('Vui lòng đăng nhập để mua sản phẩm');
       return;
     }
 
     try {
-      const { error } = await supabase
-        .from('payments')
-        .insert({
-          buyer_id: user.id,
-          product_id: productId,
+      const response = await fetch('http://localhost:3006/api/payments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userEmail: user.email,
+          productId: productId,
           amount: product?.price_sale || product?.price,
           status: 'completed'
-        });
+        })
+      })
 
-      if (error) throw error;
-
-      alert('Mua thành công!');
-      setHasPurchased(true);
+      if (response.ok) {
+        alert('Mua thành công!');
+        setHasPurchased(true);
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Payment failed')
+      }
     } catch (error) {
       console.error('Error processing purchase:', error);
       alert('Có lỗi xảy ra khi thanh toán');
@@ -272,7 +321,13 @@ export default function ProductDetail({ productId }: { productId: string }) {
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {relatedProducts.map((relatedProduct) => (
-                <ProductCard key={relatedProduct.id} product={relatedProduct} />
+                <ProductCard 
+                  key={relatedProduct.id} 
+                  product={{
+                    ...relatedProduct,
+                    user_id: relatedProduct.user_id || 0
+                  }} 
+                />
               ))}
             </div>
           </div>

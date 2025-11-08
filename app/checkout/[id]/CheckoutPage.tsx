@@ -2,7 +2,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
 import Link from 'next/link';
 
@@ -55,6 +54,8 @@ export default function CheckoutPage({ productId }: { productId: string }) {
   const [selectedPayment, setSelectedPayment] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [hasPurchased, setHasPurchased] = useState(false);
+  const [error, setError] = useState<string>('');
   const [sellerInfo, setSellerInfo] = useState<any>(null);
   const { user } = useAuth();
 
@@ -64,60 +65,79 @@ export default function CheckoutPage({ productId }: { productId: string }) {
 
   const fetchProduct = async () => {
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('id', productId)
-        .single();
+      const response = await fetch(`http://localhost:3006/api/products/${productId}`)
+      if (!response.ok) {
+        throw new Error('Product not found')
+      }
+      
+      const data = await response.json()
+      
+      // Transform API data
+      setProduct({
+        id: data.id.toString(),
+        title: data.title,
+        price: data.price || 0,
+        price_sale: data.saleprice > 0 ? data.saleprice : undefined,
+        image_url: data.image || 'https://via.placeholder.com/400x300?text=No+Image',
+        creator_name: data.seller_name || 'Unknown Creator',
+        user_id: data.userid || 0
+      })
 
-      if (error) throw error;
-
-      if (data) {
-        setProduct(data);
-        
-        // Lấy thông tin người bán
-        if (data.user_id) {
-          const { data: userData } = await supabase
-            .from('auth.users')
-            .select('*')
-            .eq('id', data.user_id)
-            .single();
-          
-          setSellerInfo(userData);
+      // Check if user already purchased
+      if (user?.email) {
+        const purchaseResponse = await fetch(`http://localhost:3006/api/payments/check?userEmail=${encodeURIComponent(user.email)}&productId=${productId}`)
+        if (purchaseResponse.ok) {
+          const purchaseData = await purchaseResponse.json()
+          if (purchaseData.hasPurchased) {
+            setHasPurchased(true)
+          }
         }
       }
     } catch (error) {
-      console.error('Error fetching product:', error);
+      console.error('Error fetching product:', error)
+      setError('Không thể tải thông tin sản phẩm')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
   };
 
   const handlePayment = async () => {
-    if (!user || !product || !selectedPayment) return;
+    if (!user?.email) {
+      alert('Vui lòng đăng nhập để thanh toán');
+      return;
+    }
+
+    if (!selectedPayment) {
+      alert('Vui lòng chọn phương thức thanh toán');
+      return;
+    }
 
     setProcessing(true);
+
     try {
-      const paymentData = {
-        buyer_id: user.id,
-        product_id: productId,
-        seller_id: product.user_id,
-        amount: product.price_sale || product.price,
-        payment_method: selectedPayment,
-        status: 'pending'
-      };
+      const response = await fetch('http://localhost:3006/api/payments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userEmail: user.email,
+          productId: productId,
+          amount: product?.price_sale || product?.price,
+          status: 'completed'
+        })
+      });
 
-      const { error } = await supabase
-        .from('payments')
-        .insert(paymentData);
-
-      if (error) throw error;
-
-      alert('Đơn hàng đã được tạo! Vui lòng thực hiện thanh toán theo thông tin bên dưới.');
-      
+      if (response.ok) {
+        alert('Thanh toán thành công! Bạn có thể tải xuống sản phẩm ngay bây giờ.');
+        setHasPurchased(true);
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Payment failed');
+      }
     } catch (error) {
-      console.error('Error creating payment:', error);
-      alert('Có lỗi xảy ra khi tạo đơn hàng');
+      console.error('Payment error:', error);
+      alert('Có lỗi xảy ra khi thanh toán. Vui lòng thử lại!');
     } finally {
       setProcessing(false);
     }

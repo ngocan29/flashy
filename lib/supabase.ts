@@ -1,15 +1,53 @@
 
-// Mock data - không sử dụng Supabase API
-export const mockCategories = [
-  { id: 'all', name: 'Tất cả' },
-  { id: 'web', name: 'Web' },
-  { id: 'app', name: 'App' },
-  { id: 'software', name: 'Software' },
-  { id: 'cad', name: 'CAD' },
-  { id: 'excel', name: 'Excel Addin' },
-  { id: 'doc', name: 'Documents' },
-  { id: 'lip', name: 'Lip' }
-];
+// API Configuration
+export const API_BASE_URL = 'http://103.124.92.135:3006/api';
+
+// Utility functions for API calls
+export const fetchAPI = async (endpoint: string, options = {}) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      ...options,
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.statusText}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('API Error:', error);
+    throw error;
+  }
+};
+
+// Product API functions
+export const getProducts = () => fetchAPI('/products');
+export const getProduct = (id: string) => fetchAPI(`/products/${id}`);
+export const createProduct = (data: any) => fetchAPI('/products', {
+  method: 'POST',
+  body: JSON.stringify(data),
+});
+export const updateProduct = (id: string, data: any) => fetchAPI(`/products/${id}`, {
+  method: 'PATCH',
+  body: JSON.stringify(data),
+});
+export const deleteProduct = (id: string) => fetchAPI(`/products/${id}`, {
+  method: 'DELETE',
+});
+
+// Category API functions
+export const getCategories = () => fetchAPI('/categories');
+
+// Payment API functions
+export const createPayment = (data: any) => fetchAPI('/payments', {
+  method: 'POST',
+  body: JSON.stringify(data),
+});
+export const checkPurchase = (userEmail: string, productId: string) => 
+  fetchAPI(`/payments/check?userEmail=${encodeURIComponent(userEmail)}&productId=${productId}`);
 
 export const mockProducts = [
   {

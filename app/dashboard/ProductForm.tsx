@@ -1,9 +1,9 @@
 
 'use client';
 
-import { useState } from 'react';
-import { mockCategories } from '@/lib/supabase';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/AuthProvider';
+import { categoryApi } from '../../lib/api';
 
 interface ProductFormProps {
   product?: any;
@@ -14,6 +14,7 @@ interface ProductFormProps {
 export default function ProductForm({ product, onSave, onCancel }: ProductFormProps) {
   const { user } = useAuth();
   
+  const [categories, setCategories] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     title: product?.title || '',
     description: product?.description || [''],
@@ -31,6 +32,29 @@ export default function ProductForm({ product, onSave, onCancel }: ProductFormPr
     ratecount: product?.ratecount || 0,
     rateavg: product?.rateavg || 0
   });
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  const fetchCategories = async () => {
+    try {
+      const data = await categoryApi.getAll();
+      setCategories(data);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      // Fallback categories
+      setCategories([
+        { id: 1, name: 'Web' },
+        { id: 2, name: 'App' },
+        { id: 3, name: 'Software' },
+        { id: 4, name: 'CAD' },
+        { id: 5, name: 'Excel Addin' },
+        { id: 6, name: 'Documents' },
+        { id: 7, name: 'Lip' }
+      ]);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,29 +80,43 @@ export default function ProductForm({ product, onSave, onCancel }: ProductFormPr
       rateavg: parseFloat(formData.rateavg.toString()) || 0,
       categoryid: parseInt(formData.categoryid),
       description: formData.description.filter((desc: string) => desc.trim() !== ''),
-      providerID: user.providerID // Thêm providerID từ user đã đăng nhập
+      providerID: user.providerID || user.email // Thêm providerID từ user đã đăng nhập
     };
 
     try {
-      // Gửi dữ liệu đến API backend
-      const response = await fetch('http://localhost:3006/api/products', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(productData)
-      });
+      let response;
+      
+      if (product) {
+        // Cập nhật sản phẩm hiện có
+        response = await fetch(`http://localhost:3006/api/products/${product.id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(productData)
+        });
+      } else {
+        // Tạo sản phẩm mới
+        response = await fetch('http://localhost:3006/api/products', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(productData)
+        });
+      }
 
       if (response.ok) {
         const result = await response.json();
-        console.log('Product created:', result);
+        console.log(product ? 'Product updated:' : 'Product created:', result);
+        alert(product ? 'Đã cập nhật sản phẩm thành công!' : 'Đã tạo sản phẩm thành công!');
         onSave(productData);
       } else {
         const error = await response.json();
-        alert(`Lỗi khi tạo sản phẩm: ${error.error || 'Unknown error'}`);
+        alert(`Lỗi khi ${product ? 'cập nhật' : 'tạo'} sản phẩm: ${error.error || 'Unknown error'}`);
       }
     } catch (error) {
-      console.error('Error creating product:', error);
+      console.error(`Error ${product ? 'updating' : 'creating'} product:`, error);
       alert('Lỗi kết nối. Vui lòng thử lại!');
     }
   };
@@ -142,8 +180,8 @@ export default function ProductForm({ product, onSave, onCancel }: ProductFormPr
                 required
               >
                 <option value="">Chọn danh mục</option>
-                {mockCategories.filter(cat => cat.id !== 'all').map(category => (
-                  <option key={category.id} value={category.id}>
+                {categories.map((category: any) => (
+                  <option key={category.id} value={category.id.toString()}>
                     {category.name}
                   </option>
                 ))}

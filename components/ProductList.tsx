@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { mockProducts } from '@/lib/supabase'
+import { productApi } from '../lib/api'
 import ProductCard from './ProductCard'
 
 interface Product {
@@ -37,25 +37,31 @@ export default function ProductList({ selectedCategory, searchQuery }: ProductLi
   const fetchProducts = async () => {
     setLoading(true)
     
-    // Mock delay
-    setTimeout(() => {
-      let filteredProducts = mockProducts
+    try {
+      // Fetch products from API
+      const apiProducts = await productApi.getAll()
+      let filteredProducts: Product[] = apiProducts
 
       // Lọc theo danh mục
       if (selectedCategory && selectedCategory !== 'all') {
-        filteredProducts = filteredProducts.filter(product => product.category_id === selectedCategory)
+        filteredProducts = filteredProducts.filter((product: Product) => product.category_id === selectedCategory)
       }
 
       // Tìm kiếm theo tiêu đề
       if (searchQuery) {
-        filteredProducts = filteredProducts.filter(product => 
+        filteredProducts = filteredProducts.filter((product: Product) => 
           product.title.toLowerCase().includes(searchQuery.toLowerCase())
         )
       }
 
       setProducts(filteredProducts)
+    } catch (error) {
+      console.error('Error fetching products:', error)
+      // Fallback to empty array or handle error as needed
+      setProducts([])
+    } finally {
       setLoading(false)
-    }, 500)
+    }
   }
 
   if (loading) {
